@@ -135,10 +135,11 @@ class AgentManager:
                 import os
                 token_env_var = getattr(self.config, 'glm_api_token_env', 'GLM_API_TOKEN')
                 token = os.getenv(token_env_var)
+                base_url = os.getenv("GLM_API_BASE_URL", "https://open.bigmodel.cn/api/anthropic")
 
                 if token:
                     env_vars = {
-                        'ANTHROPIC_BASE_URL': 'https://api.z.ai/api/anthropic',
+                        'ANTHROPIC_BASE_URL': base_url,
                         'ANTHROPIC_AUTH_TOKEN': token,
                         'ANTHROPIC_DEFAULT_SONNET_MODEL': 'GLM-4.6',
                         'ANTHROPIC_DEFAULT_OPUS_MODEL': 'GLM-4.6',
@@ -891,10 +892,11 @@ REMEMBER:
                 import os
                 token_env_var = getattr(self.config, 'glm_api_token_env', 'GLM_API_TOKEN')
                 token = os.getenv(token_env_var)
+                base_url = os.getenv("GLM_API_BASE_URL", "https://open.bigmodel.cn/api/anthropic")
 
                 if token:
                     env_vars = {
-                        'ANTHROPIC_BASE_URL': 'https://api.z.ai/api/anthropic',
+                        'ANTHROPIC_BASE_URL': base_url,
                         'ANTHROPIC_AUTH_TOKEN': token,
                         'ANTHROPIC_DEFAULT_SONNET_MODEL': 'GLM-4.6',
                         'ANTHROPIC_DEFAULT_OPUS_MODEL': 'GLM-4.6',

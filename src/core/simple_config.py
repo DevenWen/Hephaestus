@@ -63,8 +63,18 @@ class Config:
         self.default_openrouter_provider = llm.get('default_openrouter_provider', 'cerebras')
         self.default_temperature = llm.get('default_temperature', 0.7)
         self.default_max_tokens = llm.get('default_max_tokens', 4000)
-        self.embedding_model = llm.get('embedding_model', 'text-embedding-3-large')
         self.system_prompt_max_length = llm.get('system_prompt_max_length', 8000)
+
+        # New embedding provider configuration
+        embedding_config = llm.get('embedding', {})
+        self.embedding_provider = embedding_config.get('provider', 'openai')
+        self.embedding_model = embedding_config.get('model', 'text-embedding-3-large')
+        self.embedding_api_key_env = embedding_config.get('api_key_env', 'OPENAI_API_KEY')
+        self.embedding_base_url = embedding_config.get('base_url', None)
+        self.embedding_dimensions = embedding_config.get('dimensions', None)
+        self.embedding_max_retries = embedding_config.get('max_retries', 3)
+        self.embedding_timeout = embedding_config.get('timeout', 30)
+        self.embedding_fallback_providers = embedding_config.get('fallback_providers', [])
 
         # Agent settings
         agents = config.get('agents', {})
@@ -80,7 +90,8 @@ class Config:
         vector_store = config.get('vector_store', {})
         self.qdrant_url = vector_store.get('qdrant_url', 'http://localhost:6333')
         self.qdrant_collection_prefix = vector_store.get('collection_prefix', 'hephaestus')
-        self.embedding_dimension = vector_store.get('embedding_dimension', 1536)
+        self.vector_store_embedding_dimension = vector_store.get('embedding_dimension', None)
+        self.vector_store_allow_dynamic_dimensions = vector_store.get('allow_dynamic_dimensions', True)
 
         # Monitoring settings
         monitoring = config.get('monitoring', {})
@@ -102,9 +113,13 @@ class Config:
         self.task_dedup_enabled = dedup.get('enabled', True)
         self.task_similarity_threshold = dedup.get('similarity_threshold', 0.7)
         self.task_related_threshold = dedup.get('related_threshold', 0.4)
-        self.task_embedding_model = dedup.get('embedding_model', 'text-embedding-3-large')
-        self.task_embedding_dimension = dedup.get('embedding_dimension', 3072)
         self.task_dedup_batch_size = dedup.get('batch_size', 100)
+
+        # New task deduplication embedding configuration
+        task_dedup_embedding = dedup.get('embedding', {})
+        self.task_dedup_embedding_provider = task_dedup_embedding.get('provider', None)  # null = use llm.embedding.provider
+        self.task_dedup_embedding_model = task_dedup_embedding.get('model', None)  # null = use llm.embedding.model
+        self.task_dedup_embedding_dimensions = task_dedup_embedding.get('dimensions', None)  # null = auto-detect from model
 
         # Additional settings from original config
         self.agent_max_retries = 3
@@ -156,6 +171,12 @@ class Config:
         self.ticket_tracking_enabled = ticket_tracking.get('enabled', True)
         self.default_human_review = ticket_tracking.get('default_human_review', False)
         self.default_approval_timeout = ticket_tracking.get('default_approval_timeout', 1800)
+
+        # New ticket tracking embedding configuration
+        ticket_embedding = ticket_tracking.get('embedding', {})
+        self.ticket_tracking_embedding_provider = ticket_embedding.get('provider', None)  # null = use llm.embedding.provider
+        self.ticket_tracking_embedding_model = ticket_embedding.get('model', None)  # null = use llm.embedding.model
+        self.ticket_tracking_embedding_dimensions = ticket_embedding.get('dimensions', None)  # null = auto-detect from model
 
     def _apply_defaults(self):
         """Apply default configuration values."""

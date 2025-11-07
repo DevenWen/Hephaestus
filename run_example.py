@@ -98,23 +98,29 @@ def get_project_path(specified_path: str = None) -> str:
     # Get current working directory as default
     default_path = str(Path.cwd() / "hephaestus-example")
 
-    while True:
-        user_input = input(f"[Setup] Enter project path (default: {default_path}): ").strip()
+    # For non-interactive environments, use the default path
+    try:
+        while True:
+            user_input = input(f"[Setup] Enter project path (default: {default_path}): ").strip()
 
-        if not user_input:
-            project_path = Path(default_path)
-        else:
-            project_path = Path(user_input)
+            if not user_input:
+                project_path = Path(default_path)
+            else:
+                project_path = Path(user_input)
 
-        # Check if directory exists and has content
-        if project_path.exists() and any(project_path.iterdir()):
-            print(f"[Warning] Directory '{project_path}' exists and is not empty.")
-            choice = input("[Setup] Continue anyway? (y/N): ").strip().lower()
-            if choice in ['y', 'yes']:
-                break
-            continue
+            # Check if directory exists and has content
+            if project_path.exists() and any(project_path.iterdir()):
+                print(f"[Warning] Directory '{project_path}' exists and is not empty.")
+                choice = input("[Setup] Continue anyway? (y/N): ").strip().lower()
+                if choice in ['y', 'yes']:
+                    break
+                continue
 
-        break
+            break
+    except (EOFError, KeyboardInterrupt):
+        # In non-interactive environments, just use the default path
+        print(f"[Info] Using default project path: {default_path}")
+        project_path = Path(default_path)
 
     return str(project_path.absolute())
 

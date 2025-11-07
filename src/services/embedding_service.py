@@ -1,39 +1,76 @@
-"""Service for generating and comparing embeddings for task deduplication."""
+"""
+Service for generating and comparing embeddings for task deduplication.
+
+This service provides a unified interface for embedding generation using different
+providers (OpenAI, OpenRouter) with automatic failover and dimension management.
+"""
 
 import numpy as np
-import openai
 from typing import List, Dict, Any, Optional
 import logging
+import os
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from src.core.simple_config import get_config
+from src.interfaces.embedding_provider import (
+    EmbeddingConfig, EmbeddingProvider, EmbeddingProviderFactory
+)
 
 logger = logging.getLogger(__name__)
 
 
 class EmbeddingService:
-    """Service for generating and comparing embeddings."""
+    """Service for generating and comparing embeddings using configurable providers."""
 
-    def __init__(self, openai_api_key: str):
+    def __init__(self, api_key: Optional[str] = None):
         """Initialize the embedding service.
 
         Args:
-            openai_api_key: OpenAI API key for generating embeddings
+            api_key: API key for embedding provider. If not provided, will be read from config.
         """
-        self.client = openai.OpenAI(api_key=openai_api_key)
         self.config = get_config()
-        self.model = self.config.task_embedding_model
-        logger.info(f"Initialized EmbeddingService with model: {self.model}")
+        self._initialize_provider(api_key)
+        logger.info(f"Initialized EmbeddingService with provider: {self.provider.config.provider}, model: {self.provider.config.model}")
+
+    def _initialize_provider(self, api_key: Optional[str] = None):
+        """Initialize the embedding provider based on configuration."""
+        # Use the new configuration attributes
+        provider_type = self.config.embedding_provider
+        model = self.config.embedding_model
+        api_key_env = self.config.embedding_api_key_env
+        base_url = self.config.embedding_base_url
+        dimensions = self.config.embedding_dimensions
+        max_retries = self.config.embedding_max_retries
+        timeout = self.config.embedding_timeout
+
+        # Get API key
+        if api_key is None:
+            api_key = os.getenv(api_key_env)
+            if not api_key:
+                raise ValueError(f"API key not found in environment variable: {api_key_env}")
+
+        # Create provider configuration
+        config = EmbeddingConfig(
+            provider=provider_type,
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            dimensions=dimensions,
+            max_retries=max_retries,
+            timeout=timeout
+        )
+
+        # Create provider
+        self.provider = EmbeddingProviderFactory.create_provider(config)
+        self.dimensions = self.provider.get_dimensions()
 
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(min=1, max=10),
-        retry=retry_if_exception_type(
-            (openai.APIError, openai.APIConnectionError, openai.RateLimitError)
-        ),
+        retry=retry_if_exception_type(Exception),
         reraise=True,
     )
     async def generate_embedding(self, text: str) -> List[float]:
-        """Generate embedding using OpenAI's text-embedding model.
+        """Generate embedding using the configured provider.
 
         Retries up to 3 times with exponential backoff for API errors.
 
@@ -53,20 +90,44 @@ class EmbeddingService:
                 logger.warning(f"Text truncated from {len(text)} to {max_chars} characters")
                 text = text[:max_chars]
 
-            response = self.client.embeddings.create(
-                model=self.model, input=text, encoding_format="float"
-            )
-
-            embedding = response.data[0].embedding
+            embedding = await self.provider.generate_embedding(text)
             logger.info(f"Generated embedding with dimension: {len(embedding)}")
             return embedding
 
-        except (openai.APIError, openai.APIConnectionError, openai.RateLimitError) as e:
-            logger.warning(f"OpenAI API error (will retry): {e}")
-            raise
         except Exception as e:
             logger.error(f"Failed to generate embedding: {e}")
             raise
+
+    async def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """Generate multiple embeddings efficiently.
+
+        Args:
+            texts: List of texts to generate embeddings for
+
+        Returns:
+            List of embedding vectors
+        """
+        if not texts:
+            return []
+
+        if self.provider.supports_batch_processing():
+            try:
+                return await self.provider.generate_embeddings(texts)
+            except Exception as e:
+                logger.warning(f"Batch embedding generation failed, falling back to individual: {e}")
+
+        # Fallback to individual generation
+        embeddings = []
+        for text in texts:
+            try:
+                embedding = await self.generate_embedding(text)
+                embeddings.append(embedding)
+            except Exception as e:
+                logger.error(f"Failed to generate embedding for text: {e}")
+                # Return zero vector as fallback
+                embeddings.append([0.0] * self.dimensions)
+
+        return embeddings
 
     def calculate_cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
         """Calculate cosine similarity between two vectors.
@@ -196,3 +257,38 @@ class EmbeddingService:
         """
         logger.debug(f"Generating query embedding for: {query[:100]}...")
         return await self.generate_embedding(query)
+
+    def get_dimensions(self) -> int:
+        """Get the dimension count for embeddings."""
+        return self.dimensions
+
+    def get_provider_info(self) -> Dict[str, Any]:
+        """Get information about the current embedding provider."""
+        return self.provider.get_model_info()
+
+    def normalize_embedding_dimensions(self, embedding: List[float], target_dimensions: int) -> List[float]:
+        """Normalize embedding to target dimensions.
+
+        Args:
+            embedding: Source embedding vector
+            target_dimensions: Target dimension count
+
+        Returns:
+            Normalized embedding vector
+        """
+        current_dims = len(embedding)
+
+        if current_dims == target_dimensions:
+            return embedding
+        elif current_dims < target_dimensions:
+            # Pad with zeros
+            return self.provider.pad_embedding(embedding, target_dimensions)
+        else:
+            # Truncate
+            return self.provider.truncate_embedding(embedding, target_dimensions)
+
+
+# Legacy compatibility function
+def create_embedding_service(api_key: str = None) -> EmbeddingService:
+    """Create embedding service with legacy signature for backward compatibility."""
+    return EmbeddingService(api_key)

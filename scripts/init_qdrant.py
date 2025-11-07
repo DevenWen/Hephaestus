@@ -27,12 +27,13 @@ def main():
         print()
 
         # Get and display statistics
-        stats = vector_store.get_all_stats()
+        stats = vector_store.get_collection_stats()
         print("Collection Statistics:")
         for collection_name, collection_stats in stats.items():
             print(f"  - {collection_name}:")
-            print(f"      Vectors: {collection_stats.get('vectors_count', 0)}")
+            print(f"      Points: {collection_stats.get('points_count', 0)}")
             print(f"      Status: {collection_stats.get('status', 'unknown')}")
+            print(f"      Dimension: {collection_stats.get('dimension', 'unknown')}")
 
     except Exception as e:
         print(f"Error initializing Qdrant: {e}")

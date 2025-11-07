@@ -1,40 +1,54 @@
 #!/usr/bin/env python3
-"""Custom Qdrant MCP server using OpenAI embeddings.
+"""Custom Qdrant MCP server with multi-provider embeddings.
 
-This is a custom MCP server that wraps Qdrant with OpenAI embeddings
-to match Hephaestus's existing embedding model (text-embedding-3-large, 3072-dim).
+This is a custom MCP server that wraps Qdrant with configurable embedding providers
+(OpenAI and OpenRouter) to match Hephaestus's configuration. By default, it uses the
+embedding provider configured in hephaestus_config.yaml (typically OpenRouter).
+
+Supported providers:
+- OpenRouter (default): Uses openrouter.ai API with various embedding models
+- OpenAI: Uses OpenAI API for embeddings
 """
 
 import os
 import sys
 import asyncio
 from typing import List, Dict, Any
-from openai import AsyncOpenAI
 from qdrant_client import QdrantClient
-from fastmcp import FastMCP
+from mcp.server import FastMCP
+
+# Add src to path to import Hephaestus modules
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+
+from services.embedding_service import EmbeddingService
 
 # Initialize FastMCP
-mcp = FastMCP("Qdrant with OpenAI Embeddings")
+mcp = FastMCP("Qdrant with Multi-Provider Embeddings")
 
-# Configuration from environment
+# Configuration from environment (can be overridden)
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "hephaestus_agent_memories")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
 
-# Initialize clients
+# Initialize Qdrant client
 qdrant_client = QdrantClient(url=QDRANT_URL)
-openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+
+# Initialize embedding service (reads from hephaestus_config.yaml)
+try:
+    embedding_service = EmbeddingService()
+    provider_info = embedding_service.get_provider_info()
+    print(f"Initialized embedding service with provider: {provider_info['provider']}", file=sys.stderr)
+    print(f"  Model: {provider_info['model']}", file=sys.stderr)
+    print(f"  Dimensions: {provider_info['dimensions']}", file=sys.stderr)
+except Exception as e:
+    print(f"Error initializing embedding service: {e}", file=sys.stderr)
+    print("Please ensure hephaestus_config.yaml is properly configured and API keys are set", file=sys.stderr)
+    sys.exit(1)
 
 
 async def generate_embedding(text: str) -> List[float]:
-    """Generate embedding using OpenAI."""
+    """Generate embedding using configured provider (OpenAI or OpenRouter)."""
     try:
-        response = await openai_client.embeddings.create(
-            model=EMBEDDING_MODEL,
-            input=text[:8000],  # Limit input length
-        )
-        return response.data[0].embedding
+        return await embedding_service.generate_embedding(text)
     except Exception as e:
         raise Exception(f"Failed to generate embedding: {e}")
 
@@ -108,13 +122,10 @@ async def qdrant_store(content: str, metadata: Dict[str, Any] = None) -> str:
 
 
 if __name__ == "__main__":
-    # Validate configuration
-    if not OPENAI_API_KEY:
-        print("Error: OPENAI_API_KEY environment variable is required", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"Starting Qdrant MCP with OpenAI embeddings", file=sys.stderr)
-    print(f"  Model: {EMBEDDING_MODEL}", file=sys.stderr)
+    print(f"Starting Qdrant MCP with Multi-Provider Embeddings", file=sys.stderr)
+    print(f"  Provider: {embedding_service.get_provider_info()['provider']}", file=sys.stderr)
+    print(f"  Model: {embedding_service.get_provider_info()['model']}", file=sys.stderr)
+    print(f"  Dimensions: {embedding_service.get_provider_info()['dimensions']}", file=sys.stderr)
     print(f"  Collection: {COLLECTION_NAME}", file=sys.stderr)
     print(f"  Qdrant: {QDRANT_URL}", file=sys.stderr)
 
